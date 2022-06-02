@@ -1,10 +1,11 @@
-
 # This script is intended to unpack "pkg" file from Trails of Cold Steel III/IV/Hajimari PC/Switch, but it also works on Trails of Cold Steel I/II/III/IV Vita/PS3/PS4, Hajimari no Kiseki, and Tokyo Xanadu.
 # 1st argument is .pkg path, 2nd argument is output directory
 
 # For Hajimari PC support, it requires the "zstandard" module to be installed.
 # This can be installed by:
 # /path/to/python3 -m pip install zstandard
+
+# GitHub eArmada8/unpackpka, forked from uyjulian/unpackpka.  Formatting changes to allow use as a module.
 
 import io
 import sys
@@ -128,39 +129,40 @@ def uncompress_zstd(src, decompressed_size, compressed_size):
     uncompressed = dctx.decompress(src.read(compressed_size), max_output_size=decompressed_size)
     return uncompressed
 
-with open(sys.argv[1], "rb") as f:
-    out_dir = sys.argv[1] + "__"
-    if len(sys.argv) > 2:
-        out_dir = sys.argv[2]
-    try:
-        os.makedirs(name=out_dir)
-    except FileExistsError as e:
-        pass
-    # Skip first four bytes
-    f.seek(4, io.SEEK_CUR)
-    package_file_entries = {}
-    total_file_entries, = struct.unpack("<I", f.read(4))
-    for i in range(total_file_entries):
-        file_entry_name, file_entry_uncompressed_size, file_entry_compressed_size, file_entry_offset, file_entry_flags = struct.unpack("<64sIIII", f.read(64+4+4+4+4))
-        package_file_entries[file_entry_name.rstrip(b"\x00")] = [file_entry_offset, file_entry_compressed_size, file_entry_uncompressed_size, file_entry_flags]
-    for file_entry_name in sorted(package_file_entries.keys()):
-        file_entry = package_file_entries[file_entry_name]
-        f.seek(file_entry[0])
-        output_data = None
-        if file_entry[3] & 2:
-            # This is the crc32 of the file, but we don't handle this yet
-            f.seek(4, io.SEEK_CUR)
-        if file_entry[3] & 4:
-            output_data = uncompress_lz4(f, file_entry[2], file_entry[1])
-        elif file_entry[3] & 8:
-            if "zstandard" in sys.modules:
-                output_data = uncompress_zstd(f, file_entry[2], file_entry[1])
+if __name__ == "__main__":
+    with open(sys.argv[1], "rb") as f:
+        out_dir = sys.argv[1] + "__"
+        if len(sys.argv) > 2:
+            out_dir = sys.argv[2]
+        try:
+            os.makedirs(name=out_dir)
+        except FileExistsError as e:
+            pass
+        # Skip first four bytes
+        f.seek(4, io.SEEK_CUR)
+        package_file_entries = {}
+        total_file_entries, = struct.unpack("<I", f.read(4))
+        for i in range(total_file_entries):
+            file_entry_name, file_entry_uncompressed_size, file_entry_compressed_size, file_entry_offset, file_entry_flags = struct.unpack("<64sIIII", f.read(64+4+4+4+4))
+            package_file_entries[file_entry_name.rstrip(b"\x00")] = [file_entry_offset, file_entry_compressed_size, file_entry_uncompressed_size, file_entry_flags]
+        for file_entry_name in sorted(package_file_entries.keys()):
+            file_entry = package_file_entries[file_entry_name]
+            f.seek(file_entry[0])
+            output_data = None
+            if file_entry[3] & 2:
+                # This is the crc32 of the file, but we don't handle this yet
+                f.seek(4, io.SEEK_CUR)
+            if file_entry[3] & 4:
+                output_data = uncompress_lz4(f, file_entry[2], file_entry[1])
+            elif file_entry[3] & 8:
+                if "zstandard" in sys.modules:
+                    output_data = uncompress_zstd(f, file_entry[2], file_entry[1])
+                else:
+                    print(("File %s could not be extracted because zstandard module is not installed") % (file_entry_name.decode("ASCII")))
+            elif file_entry[3] & 1:
+                output_data = uncompress_nislzss(f, file_entry[2], file_entry[1])
             else:
-                print(("File %s could not be extracted because zstandard module is not installed") % (file_entry_name.decode("ASCII")))
-        elif file_entry[3] & 1:
-            output_data = uncompress_nislzss(f, file_entry[2], file_entry[1])
-        else:
-            output_data = f.read(file_entry[2])
-        if output_data is not None:
-            with open(out_dir + "/" + file_entry_name.decode("ASCII"), "wb") as wf:
-                wf.write(output_data)
+                output_data = f.read(file_entry[2])
+            if output_data is not None:
+                with open(out_dir + "/" + file_entry_name.decode("ASCII"), "wb") as wf:
+                    wf.write(output_data)
